@@ -1,0 +1,73 @@
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test-build:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm install
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm install
+
+      - name: Generate Prisma client
+        working-directory: server
+        run: npx prisma generate
+
+      - name: Lint and type-check
+        run: |
+          npm run lint --prefix server
+          npm run lint --prefix client
+
+      - name: Run tests
+        run: npm test --prefix server
+
+      - name: Build frontend and backend
+        run: |
+          npm run build --prefix client
+          npm run build --prefix server
+
+  docker-build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    needs: lint-test-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t my-deployed-app:${{ github.sha }} .
+
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy
+        run: railway up --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
